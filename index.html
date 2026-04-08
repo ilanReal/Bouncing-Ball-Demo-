@@ -50,6 +50,7 @@
             font-size: 12px;
             text-align: center;
             margin-top: 5px;
+            line-height: 1.5;
         }
         button {
             width: 100%;
@@ -75,8 +76,8 @@
     <button id="resetBtn">Drop Ball</button>
     
     <div class="control-group">
-        <label>Bounciness (Restitution) <span id="bVal">1.00</span></label>
-        <input type="range" id="bounciness" min="0" max="1.5" step="0.05" value="1.0">
+        <label>Bounciness (Restitution) <span id="bVal">0.80</span></label>
+        <input type="range" id="bounciness" min="0" max="1.5" step="0.05" value="0.8">
     </div>
     
     <div class="control-group">
@@ -85,15 +86,16 @@
     </div>
     
     <div class="control-group">
-        <label>Air Friction (Damping) <span id="fVal">0.000</span></label>
-        <input type="range" id="friction" min="0" max="0.05" step="0.001" value="0">
+        <label>Air Friction (Damping) <span id="fVal">0.005</span></label>
+        <input type="range" id="friction" min="0" max="0.05" step="0.001" value="0.005">
     </div>
 
     <canvas id="graphCanvas" width="320" height="150"></canvas>
     <div class="legend">
         <span style="color: white; font-weight: bold;">Total Energy</span> | 
         <span style="color: #ff4444;">Kinetic</span> | 
-        <span style="color: #4488ff;">Potential</span>
+        <span style="color: #4488ff;">Potential</span> |
+        <span style="color: #ffaa00;">Thermal</span>
     </div>
 </div>
 
@@ -138,76 +140,104 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // Ball object
+    // Ball object & Thermal Accumulator
     let ball = {
         x: simCanvas.width / 2,
         y: 100,
         radius: 20,
-        dx: 0, // Horizontal velocity set to 0
+        dx: 0, 
         dy: 0,
-        mass: 1 // Simplifying energy calc
+        mass: 1 
     };
+    let thermalEnergy = 0; // Tracks accumulated heat
 
     // Reset functionality
     document.getElementById('resetBtn').addEventListener('click', () => {
         ball.x = simCanvas.width / 2;
         ball.y = 100;
-        ball.dx = 0; // Horizontal velocity remains 0 on reset
+        ball.dx = 0; 
         ball.dy = 0;
+        thermalEnergy = 0; // Reset heat
         energyHistory = [];
     });
 
     // Graph tracking
     let energyHistory = [];
-    const maxHistory = graphCanvas.width; // 1 pixel per history point
+    const maxHistory = graphCanvas.width; 
 
     function updatePhysics() {
-        // Apply forces
+        // Apply gravity to velocity
         ball.dy += physics.gravity;
         
-        // Apply friction
+        // Calculate energy lost to air friction (converted to thermal)
+        let v2_before_fric = ball.dx * ball.dx + ball.dy * ball.dy;
+        
         ball.dx *= (1 - physics.friction);
         ball.dy *= (1 - physics.friction);
+        
+        let v2_after_fric = ball.dx * ball.dx + ball.dy * ball.dy;
+        thermalEnergy += 0.5 * ball.mass * (v2_before_fric - v2_after_fric);
 
         // Move ball
         ball.x += ball.dx;
         ball.y += ball.dy;
 
-        // Bouncing logic with position reflection (prevents energy loss from floor clipping)
+        // Collision logic (Floor)
         if (ball.y + ball.radius > simCanvas.height) {
             let penetration = (ball.y + ball.radius) - simCanvas.height;
             ball.y = simCanvas.height - ball.radius - penetration;
+            
+            // Calculate energy lost in inelastic bounce (converted to thermal)
+            let dy_before_bounce = ball.dy;
             ball.dy = -ball.dy * physics.bounciness;
-        } else if (ball.y - ball.radius < 0) {
+            let dy_after_bounce = ball.dy;
+            
+            thermalEnergy += 0.5 * ball.mass * (dy_before_bounce * dy_before_bounce - dy_after_bounce * dy_after_bounce);
+            
+        } 
+        // Collision logic (Ceiling)
+        else if (ball.y - ball.radius < 0) {
             let penetration = 0 - (ball.y - ball.radius);
             ball.y = ball.radius + penetration;
+            
+            let dy_before_bounce = ball.dy;
             ball.dy = -ball.dy * physics.bounciness;
+            let dy_after_bounce = ball.dy;
+            
+            thermalEnergy += 0.5 * ball.mass * (dy_before_bounce * dy_before_bounce - dy_after_bounce * dy_after_bounce);
         }
 
+        // Just in case lateral movement is ever added back, handle walls
         if (ball.x + ball.radius > simCanvas.width) {
             let penetration = (ball.x + ball.radius) - simCanvas.width;
             ball.x = simCanvas.width - ball.radius - penetration;
+            
+            let dx_before = ball.dx;
             ball.dx = -ball.dx * physics.bounciness;
+            thermalEnergy += 0.5 * ball.mass * (dx_before * dx_before - ball.dx * ball.dx);
+            
         } else if (ball.x - ball.radius < 0) {
             let penetration = 0 - (ball.x - ball.radius);
             ball.x = ball.radius + penetration;
+            
+            let dx_before = ball.dx;
             ball.dx = -ball.dx * physics.bounciness;
+            thermalEnergy += 0.5 * ball.mass * (dx_before * dx_before - ball.dx * ball.dx);
         }
     }
 
     function calculateEnergy() {
-        // Kinetic Energy = 0.5 * m * v^2
+        // Kinetic Energy
         let ke = 0.5 * ball.mass * (ball.dx * ball.dx + ball.dy * ball.dy);
         
-        // Potential Energy = m * g * h
+        // Potential Energy 
         let height = simCanvas.height - ball.y - ball.radius;
-        // If gravity is 0, we still want to see the existing energy flatline, 
-        // but physically PE drops to 0. 
         let pe = ball.mass * physics.gravity * height; 
         
-        let te = ke + pe;
+        // Total Energy (Mechanical + Thermal)
+        let te = ke + pe + thermalEnergy;
 
-        energyHistory.push({ te, ke, pe });
+        energyHistory.push({ te, ke, pe, th: thermalEnergy });
         if (energyHistory.length > maxHistory) {
             energyHistory.shift();
         }
@@ -216,7 +246,7 @@
     function drawSim() {
         simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
         
-        // Draw grid lines for visual reference
+        // Draw grid lines
         simCtx.strokeStyle = "#333";
         simCtx.lineWidth = 1;
         for(let i=0; i<simCanvas.height; i+=100) {
@@ -226,7 +256,11 @@
         // Draw ball
         simCtx.beginPath();
         simCtx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-        simCtx.fillStyle = '#00ffcc';
+        
+        // Make the ball get redder as it gets hotter (based on thermal energy)
+        let heatIntensity = Math.min(255, Math.floor(thermalEnergy / 5));
+        simCtx.fillStyle = `rgb(${heatIntensity}, ${255 - heatIntensity}, 204)`;
+        
         simCtx.fill();
         simCtx.closePath();
     }
@@ -237,7 +271,7 @@
 
         // Find max energy to scale the graph dynamically
         let maxEnergy = Math.max(...energyHistory.map(e => e.te)) * 1.1;
-        if (maxEnergy < 10) maxEnergy = 10; // Prevent dividing by zero or tiny scales
+        if (maxEnergy < 10) maxEnergy = 10; 
 
         function drawLine(key, color) {
             graphCtx.beginPath();
@@ -254,9 +288,10 @@
             graphCtx.stroke();
         }
 
-        drawLine('pe', '#4488ff'); // Blue
-        drawLine('ke', '#ff4444'); // Red
-        drawLine('te', '#ffffff'); // White
+        drawLine('pe', '#4488ff'); // Blue (Potential)
+        drawLine('th', '#ffaa00'); // Orange (Thermal)
+        drawLine('ke', '#ff4444'); // Red (Kinetic)
+        drawLine('te', '#ffffff'); // White (Total)
     }
 
     function animate() {
