@@ -143,7 +143,7 @@
         x: simCanvas.width / 2,
         y: 100,
         radius: 20,
-        dx: 8,
+        dx: 0, // Horizontal velocity set to 0
         dy: 0,
         mass: 1 // Simplifying energy calc
     };
@@ -152,7 +152,7 @@
     document.getElementById('resetBtn').addEventListener('click', () => {
         ball.x = simCanvas.width / 2;
         ball.y = 100;
-        ball.dx = 8;
+        ball.dx = 0; // Horizontal velocity remains 0 on reset
         ball.dy = 0;
         energyHistory = [];
     });
