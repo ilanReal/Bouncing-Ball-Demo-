@@ -3,125 +3,272 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Perfectly Elastic Bouncing Ball</title>
+    <title>Interactive Bouncing Ball & Energy Graph</title>
     <style>
         body {
             margin: 0;
             padding: 0;
             overflow: hidden;
-            background-color: #1a1a1a;
+            background-color: #111;
+            font-family: sans-serif;
         }
-        canvas {
+        #simCanvas {
             display: block;
+        }
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(30, 30, 30, 0.85);
+            border: 1px solid #444;
+            padding: 15px;
+            border-radius: 8px;
+            color: white;
+            width: 320px;
+            backdrop-filter: blur(5px);
+        }
+        .control-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+        #graphCanvas {
+            background: #000;
+            border: 1px solid #555;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+        .legend {
+            font-size: 12px;
+            text-align: center;
+            margin-top: 5px;
+        }
+        button {
+            width: 100%;
+            padding: 8px;
+            background: #00ffcc;
+            border: none;
+            color: black;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #00ccaa;
         }
     </style>
 </head>
 <body>
 
-<canvas id="simulationCanvas"></canvas>
+<canvas id="simCanvas"></canvas>
+
+<div id="ui-panel">
+    <button id="resetBtn">Drop Ball</button>
+    
+    <div class="control-group">
+        <label>Bounciness (Restitution) <span id="bVal">1.00</span></label>
+        <input type="range" id="bounciness" min="0" max="1.5" step="0.05" value="1.0">
+    </div>
+    
+    <div class="control-group">
+        <label>Gravity <span id="gVal">0.50</span></label>
+        <input type="range" id="gravity" min="0" max="1.5" step="0.05" value="0.5">
+    </div>
+    
+    <div class="control-group">
+        <label>Air Friction (Damping) <span id="fVal">0.000</span></label>
+        <input type="range" id="friction" min="0" max="0.05" step="0.001" value="0">
+    </div>
+
+    <canvas id="graphCanvas" width="320" height="150"></canvas>
+    <div class="legend">
+        <span style="color: white; font-weight: bold;">Total Energy</span> | 
+        <span style="color: #ff4444;">Kinetic</span> | 
+        <span style="color: #4488ff;">Potential</span>
+    </div>
+</div>
 
 <script>
-    const canvas = document.getElementById('simulationCanvas');
-    const ctx = canvas.getContext('2d');
+    const simCanvas = document.getElementById('simCanvas');
+    const simCtx = simCanvas.getContext('2d');
+    
+    const graphCanvas = document.getElementById('graphCanvas');
+    const graphCtx = graphCanvas.getContext('2d');
 
-    // Make canvas full screen
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // UI Elements
+    const bInput = document.getElementById('bounciness');
+    const gInput = document.getElementById('gravity');
+    const fInput = document.getElementById('friction');
+    const bVal = document.getElementById('bVal');
+    const gVal = document.getElementById('gVal');
+    const fVal = document.getElementById('fVal');
 
-    // Ball properties
-    const ball = {
-        x: canvas.width / 2,
-        y: 50, // Starts near the top
-        radius: 25,
-        dx: 6, // Horizontal velocity
-        dy: 0, // Initial vertical velocity
-        color: '#00ffcc'
+    // Physics parameters
+    let physics = {
+        bounciness: parseFloat(bInput.value),
+        gravity: parseFloat(gInput.value),
+        friction: parseFloat(fInput.value)
     };
 
-    const gravity = 0.4; // Constant downward acceleration
-    const durationLimit = 60000; // 60 seconds in milliseconds
-    let startTime = null;
-
-    function drawBall() {
-        ctx.beginPath();
-        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
-        ctx.fillStyle = ball.color;
-        ctx.fill();
-        ctx.closePath();
+    // Update UI and physics on slider change
+    function setupSlider(input, display, key, toFixedParams) {
+        input.addEventListener('input', (e) => {
+            physics[key] = parseFloat(e.target.value);
+            display.innerText = physics[key].toFixed(toFixedParams);
+        });
     }
+    setupSlider(bInput, bVal, 'bounciness', 2);
+    setupSlider(gInput, gVal, 'gravity', 2);
+    setupSlider(fInput, fVal, 'friction', 3);
+
+    // Resize simulation canvas
+    function resize() {
+        simCanvas.width = window.innerWidth;
+        simCanvas.height = window.innerHeight;
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // Ball object
+    let ball = {
+        x: simCanvas.width / 2,
+        y: 100,
+        radius: 20,
+        dx: 8,
+        dy: 0,
+        mass: 1 // Simplifying energy calc
+    };
+
+    // Reset functionality
+    document.getElementById('resetBtn').addEventListener('click', () => {
+        ball.x = simCanvas.width / 2;
+        ball.y = 100;
+        ball.dx = 8;
+        ball.dy = 0;
+        energyHistory = [];
+    });
+
+    // Graph tracking
+    let energyHistory = [];
+    const maxHistory = graphCanvas.width; // 1 pixel per history point
 
     function updatePhysics() {
-        // Apply gravity to vertical velocity
-        ball.dy += gravity;
+        // Apply forces
+        ball.dy += physics.gravity;
+        
+        // Apply friction
+        ball.dx *= (1 - physics.friction);
+        ball.dy *= (1 - physics.friction);
 
-        // Apply velocities to position
+        // Move ball
         ball.x += ball.dx;
         ball.y += ball.dy;
 
-        // Collision: Floor
-        if (ball.y + ball.radius > canvas.height) {
-            ball.y = canvas.height - ball.radius; // Prevent sinking into the floor
-            ball.dy = -ball.dy; // Perfectly elastic bounce (energy conserved)
+        // Bouncing logic with position reflection (prevents energy loss from floor clipping)
+        if (ball.y + ball.radius > simCanvas.height) {
+            let penetration = (ball.y + ball.radius) - simCanvas.height;
+            ball.y = simCanvas.height - ball.radius - penetration;
+            ball.dy = -ball.dy * physics.bounciness;
+        } else if (ball.y - ball.radius < 0) {
+            let penetration = 0 - (ball.y - ball.radius);
+            ball.y = ball.radius + penetration;
+            ball.dy = -ball.dy * physics.bounciness;
         }
 
-        // Collision: Ceiling
-        if (ball.y - ball.radius < 0) {
-            ball.y = ball.radius;
-            ball.dy = -ball.dy;
-        }
-
-        // Collision: Left Wall
-        if (ball.x - ball.radius < 0) {
-            ball.x = ball.radius;
-            ball.dx = -ball.dx;
-        }
-
-        // Collision: Right Wall
-        if (ball.x + ball.radius > canvas.width) {
-            ball.x = canvas.width - ball.radius;
-            ball.dx = -ball.dx;
+        if (ball.x + ball.radius > simCanvas.width) {
+            let penetration = (ball.x + ball.radius) - simCanvas.width;
+            ball.x = simCanvas.width - ball.radius - penetration;
+            ball.dx = -ball.dx * physics.bounciness;
+        } else if (ball.x - ball.radius < 0) {
+            let penetration = 0 - (ball.x - ball.radius);
+            ball.x = ball.radius + penetration;
+            ball.dx = -ball.dx * physics.bounciness;
         }
     }
 
-    function animate(timestamp) {
-        // Set the start time on the very first frame
-        if (!startTime) startTime = timestamp;
-        const elapsedTime = timestamp - startTime;
-
-        // Clear the screen for the new frame
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Check if 60 seconds have passed
-        if (elapsedTime < durationLimit) {
-            updatePhysics();
-            drawBall();
-            
-            // Loop the animation
-            requestAnimationFrame(animate);
-        } else {
-            // Draw the ball one last time where it stopped
-            drawBall();
-            
-            // Display end message
-            ctx.fillStyle = "white";
-            ctx.font = "bold 36px Arial";
-            ctx.textAlign = "center";
-            ctx.fillText("60 Seconds Complete. Energy Conserved.", canvas.width / 2, canvas.height / 2);
-        }
-    }
-
-    // Handle window resizing dynamically
-    window.addEventListener('resize', () => {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+    function calculateEnergy() {
+        // Kinetic Energy = 0.5 * m * v^2
+        let ke = 0.5 * ball.mass * (ball.dx * ball.dx + ball.dy * ball.dy);
         
-        // Ensure ball doesn't get trapped outside the screen if resized smaller
-        if (ball.x > canvas.width) ball.x = canvas.width - ball.radius;
-        if (ball.y > canvas.height) ball.y = canvas.height - ball.radius;
-    });
+        // Potential Energy = m * g * h
+        let height = simCanvas.height - ball.y - ball.radius;
+        // If gravity is 0, we still want to see the existing energy flatline, 
+        // but physically PE drops to 0. 
+        let pe = ball.mass * physics.gravity * height; 
+        
+        let te = ke + pe;
 
-    // Start the simulation
-    requestAnimationFrame(animate);
+        energyHistory.push({ te, ke, pe });
+        if (energyHistory.length > maxHistory) {
+            energyHistory.shift();
+        }
+    }
+
+    function drawSim() {
+        simCtx.clearRect(0, 0, simCanvas.width, simCanvas.height);
+        
+        // Draw grid lines for visual reference
+        simCtx.strokeStyle = "#333";
+        simCtx.lineWidth = 1;
+        for(let i=0; i<simCanvas.height; i+=100) {
+            simCtx.beginPath(); simCtx.moveTo(0, i); simCtx.lineTo(simCanvas.width, i); simCtx.stroke();
+        }
+
+        // Draw ball
+        simCtx.beginPath();
+        simCtx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        simCtx.fillStyle = '#00ffcc';
+        simCtx.fill();
+        simCtx.closePath();
+    }
+
+    function drawGraph() {
+        graphCtx.clearRect(0, 0, graphCanvas.width, graphCanvas.height);
+        if (energyHistory.length === 0) return;
+
+        // Find max energy to scale the graph dynamically
+        let maxEnergy = Math.max(...energyHistory.map(e => e.te)) * 1.1;
+        if (maxEnergy < 10) maxEnergy = 10; // Prevent dividing by zero or tiny scales
+
+        function drawLine(key, color) {
+            graphCtx.beginPath();
+            graphCtx.strokeStyle = color;
+            graphCtx.lineWidth = 2;
+            
+            for (let i = 0; i < energyHistory.length; i++) {
+                let x = i;
+                let y = graphCanvas.height - (energyHistory[i][key] / maxEnergy) * graphCanvas.height;
+                
+                if (i === 0) graphCtx.moveTo(x, y);
+                else graphCtx.lineTo(x, y);
+            }
+            graphCtx.stroke();
+        }
+
+        drawLine('pe', '#4488ff'); // Blue
+        drawLine('ke', '#ff4444'); // Red
+        drawLine('te', '#ffffff'); // White
+    }
+
+    function animate() {
+        updatePhysics();
+        calculateEnergy();
+        drawSim();
+        drawGraph();
+        requestAnimationFrame(animate);
+    }
+
+    // Start simulation
+    animate();
 </script>
 
 </body>
