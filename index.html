@@ -1,57 +1,128 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Bouncing Ball Simulation</title>
-  <link rel="stylesheet" href="style.css" />
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Perfectly Elastic Bouncing Ball</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
 </head>
 <body>
-  <div class="app">
-    <header>
-      <h1>Bouncing Balls</h1>
-      <p class="subtitle">Physics simulation — click the canvas to spawn a ball</p>
-    </header>
 
-    <main>
-      <canvas id="canvas"></canvas>
+<canvas id="simulationCanvas"></canvas>
 
-      <div class="controls">
-        <div class="ctrl-group">
-          <label for="gravity">Gravity <span id="gravity-val">0.5</span></label>
-          <input type="range" id="gravity" min="0.1" max="2" step="0.1" value="0.5" />
-        </div>
-        <div class="ctrl-group">
-          <label for="restitution">Bounce <span id="res-val">0.75</span></label>
-          <input type="range" id="restitution" min="0.1" max="1" step="0.05" value="0.75" />
-        </div>
-        <div class="ctrl-group">
-          <label for="friction">Friction <span id="fric-val">0.990</span></label>
-          <input type="range" id="friction" min="0.9" max="1" step="0.002" value="0.99" />
-        </div>
-        <div class="ctrl-group">
-          <label for="count">Ball count <span id="count-val">5</span></label>
-          <input type="range" id="count" min="1" max="20" step="1" value="5" />
-        </div>
-      </div>
+<script>
+    const canvas = document.getElementById('simulationCanvas');
+    const ctx = canvas.getContext('2d');
 
-      <div class="btn-row">
-        <button id="btn-add">+ Add ball</button>
-        <button id="btn-clear">Clear</button>
-        <button id="btn-reset">Reset</button>
-        <button id="btn-pause">Pause</button>
-        <button id="btn-gravity">Gravity: on</button>
-        <button id="btn-explode">Explode!</button>
-      </div>
+    // Make canvas full screen
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
 
-      <div class="stats">
-        <div class="stat">Balls: <strong id="stat-balls">5</strong></div>
-        <div class="stat">Avg speed: <strong id="stat-speed">0.0</strong></div>
-        <div class="stat">Collisions: <strong id="stat-coll">0</strong></div>
-      </div>
-    </main>
-  </div>
+    // Ball properties
+    const ball = {
+        x: canvas.width / 2,
+        y: 50, // Starts near the top
+        radius: 25,
+        dx: 6, // Horizontal velocity
+        dy: 0, // Initial vertical velocity
+        color: '#00ffcc'
+    };
 
-  <script src="simulation.js"></script>
+    const gravity = 0.4; // Constant downward acceleration
+    const durationLimit = 60000; // 60 seconds in milliseconds
+    let startTime = null;
+
+    function drawBall() {
+        ctx.beginPath();
+        ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+        ctx.fillStyle = ball.color;
+        ctx.fill();
+        ctx.closePath();
+    }
+
+    function updatePhysics() {
+        // Apply gravity to vertical velocity
+        ball.dy += gravity;
+
+        // Apply velocities to position
+        ball.x += ball.dx;
+        ball.y += ball.dy;
+
+        // Collision: Floor
+        if (ball.y + ball.radius > canvas.height) {
+            ball.y = canvas.height - ball.radius; // Prevent sinking into the floor
+            ball.dy = -ball.dy; // Perfectly elastic bounce (energy conserved)
+        }
+
+        // Collision: Ceiling
+        if (ball.y - ball.radius < 0) {
+            ball.y = ball.radius;
+            ball.dy = -ball.dy;
+        }
+
+        // Collision: Left Wall
+        if (ball.x - ball.radius < 0) {
+            ball.x = ball.radius;
+            ball.dx = -ball.dx;
+        }
+
+        // Collision: Right Wall
+        if (ball.x + ball.radius > canvas.width) {
+            ball.x = canvas.width - ball.radius;
+            ball.dx = -ball.dx;
+        }
+    }
+
+    function animate(timestamp) {
+        // Set the start time on the very first frame
+        if (!startTime) startTime = timestamp;
+        const elapsedTime = timestamp - startTime;
+
+        // Clear the screen for the new frame
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Check if 60 seconds have passed
+        if (elapsedTime < durationLimit) {
+            updatePhysics();
+            drawBall();
+            
+            // Loop the animation
+            requestAnimationFrame(animate);
+        } else {
+            // Draw the ball one last time where it stopped
+            drawBall();
+            
+            // Display end message
+            ctx.fillStyle = "white";
+            ctx.font = "bold 36px Arial";
+            ctx.textAlign = "center";
+            ctx.fillText("60 Seconds Complete. Energy Conserved.", canvas.width / 2, canvas.height / 2);
+        }
+    }
+
+    // Handle window resizing dynamically
+    window.addEventListener('resize', () => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Ensure ball doesn't get trapped outside the screen if resized smaller
+        if (ball.x > canvas.width) ball.x = canvas.width - ball.radius;
+        if (ball.y > canvas.height) ball.y = canvas.height - ball.radius;
+    });
+
+    // Start the simulation
+    requestAnimationFrame(animate);
+</script>
+
 </body>
 </html>
